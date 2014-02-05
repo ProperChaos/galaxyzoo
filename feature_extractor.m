@@ -33,7 +33,7 @@ function features = feature_extractor(image, centroids, patch_width, channels, s
     toc
     
     % Pool
-    features = sum_pool(patch_features);
+    features = sum_pool(patch_features, 4);
 end
 
 function proc = process_patch(patch, patch_width, channels, centroids)
@@ -51,11 +51,10 @@ function proc = process_patch(patch, patch_width, channels, centroids)
 end
 
 function feature_vector = map_kmeans(vect, centroids)
-    res = repmat(vect, 1, size(centroids, 1));
-    z = res-centroids';
+    z = bsxfun(@minus, vect, centroids');
     twoNorm = sqrt(sum(abs(z).^2, 1));
     
     mu = mean(twoNorm);
-    
-    feature_vector = max(0, repmat(mu, 1, size(centroids, 1)) - twoNorm);
+
+    feature_vector = max(0, bsxfun(@minus, mu, twoNorm));
 end
