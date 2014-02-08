@@ -34,22 +34,22 @@ function features = feature_extractor(image, centroids, patch_width, stride)
     patches = reshape(patches, rows, cols, size(centroids, 1));
     
     % Plot all
-    figure;
-    colormap gray;
-    axis image;
-    axis off;
-    
-    c = 4;
-    for y = 1:c
-        for x = 1:c
-            subplot(c, c, (y-1)*c+x);
-            a = patches(:, :, (y-1)*c+x);
-            b = (a - min(a(:))) / (max(a(:)) - min(a(:)));
-            imagesc(b);
-            axis image;
-            axis off;
-        end
-    end
+%     figure;
+%     colormap gray;
+%     axis image;
+%     axis off;
+%     
+%     c = 4;
+%     for y = 1:c
+%         for x = 1:c
+%             subplot(c, c, (y-1)*c+x);
+%             a = patches(:, :, (y-1)*c+x);
+%             b = (a - min(a(:))) / (max(a(:)) - min(a(:)));
+%             imagesc(b);
+%             axis image;
+%             axis off;
+%         end
+%     end
 
     % Pool
     half_rows = round(rows / 2);
