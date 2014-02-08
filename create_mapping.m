@@ -12,7 +12,7 @@ function patches = extract_random_patches(image_path, patches_per_image, patch_w
 	filterData = listing(~filter);
 	
 	% Reserve memory
-	patches = zeros(size(filterData)*patches_per_image, channels * patch_width * patch_width);
+	patches = zeros(size(filterData, 1)*patches_per_image, channels * patch_width * patch_width);
 	
 	j = 1;
 	for image = filterData'
