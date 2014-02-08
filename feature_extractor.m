@@ -35,20 +35,22 @@ function features = feature_extractor(image, centroids, patch_width, stride)
     
     % Plot all
     figure;
-    axis off;
+    colormap gray;
     axis image;
-    colormap('jet');
-    c = 3;
+    axis off;
+    
+    c = 4;
     for y = 1:c
         for x = 1:c
             subplot(c, c, (y-1)*c+x);
             a = patches(:, :, (y-1)*c+x);
             b = (a - min(a(:))) / (max(a(:)) - min(a(:)));
-            subimage(b);
+            imagesc(b);
+            axis image;
             axis off;
         end
     end
-    
+
     % Pool
     half_rows = round(rows / 2);
     half_cols = round(cols / 2);
