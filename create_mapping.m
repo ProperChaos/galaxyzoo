@@ -43,6 +43,10 @@ function patches = extract_random_patches(image_path, patches_per_image, patch_w
 		end
 		
 		j = j + 1;
+        
+        if mod(j, 1000) == 0
+            j/size(filterData, 1)
+        end
 	end
 end
 
