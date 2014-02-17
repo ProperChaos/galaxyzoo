@@ -1,7 +1,7 @@
 function rmse = validate_model(net, features, solutions)
-    testY = net(features');
+    testY = net.predict(features);
     
-    delta = solutions' - testY;
+    delta = solutions(:, 1) - testY;
     delta = delta .^ 2;
     
     rmse = sqrt(mean(delta(:)));

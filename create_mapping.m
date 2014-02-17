@@ -17,7 +17,7 @@ function patches = extract_random_patches(image_path, patches_per_image, patch_w
 	j = 1;
 	for image = filterData'
 		% Read file
-		filename = strcat(image_path, '\\', image.name);
+		filename = strcat(image_path, '/', image.name);
 		im = imread(filename);
 		
 		for i = 1:patches_per_image
