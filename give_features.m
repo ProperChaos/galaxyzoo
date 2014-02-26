@@ -5,15 +5,13 @@ function features = give_features(image_path, centroids, patch_width, stride)
 	filterData = listing(~filter);
     
     % amount
-    from = 10001;
-    to = size(filterData, 1)-1;
+    from = 1;
+    to = 100;
     
     % Reserve memory
     centroids = gpuArray(centroids);
 	features = zeros(to-from+1, 4*size(centroids, 1));
-    
-    tic;
-    
+
     for j = from:to %1:a
         % For every patch (in total (n-w+1)(n-w+1) patches):
         %   Take patch w-by-w-by-d
@@ -21,7 +19,7 @@ function features = give_features(image_path, centroids, patch_width, stride)
         %   Map to feature vector K
         % Now we have a matrix, K-by-(n-w+1)-by-(n-w+1)
         % Pool in 4 quadrants, gives feature vector of 4K
-        
+        tic
         im = imread(strcat(image_path, '\', filterData(j).name));
         
         % Crop slightly
@@ -74,12 +72,11 @@ function features = give_features(image_path, centroids, patch_width, stride)
 
         % Concatenate, send to RAM
         features(j-from+1, :) = gather([q1(:);q2(:);q3(:);q4(:)]');
-        j
+        toc
     end
     
     % Normalize
     features = bsxfun(@minus, features, mean(features, 2));
     features = bsxfun(@rdivide, features, std(features, 0, 2));
-        
-    toc;
+
 end

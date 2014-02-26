@@ -6,20 +6,24 @@ function features = give_features_cpu(image_path, centroids, patch_width, stride
     
     % Reserve memory
     features = zeros(size(filterData, 1), 4*size(centroids, 1));
-    
-    tic;
-    
-    for j = 1:2 %size(filterData, 1)
+
+    for j = 1:20 %size(filterData, 1)
         % For every patch (in total (n-w+1)(n-w+1) patches):
         %   Take patch w-by-w-by-d
         %   Convert to vector N (=w*w*d)
         %   Map to feature vector K
         % Now we have a matrix, K-by-(n-w+1)-by-(n-w+1)
         % Pool in 4 quadrants, gives feature vector of 4K
+    
+        tic;
+    
+        im = imread(strcat(image_path, '/', filterData(j).name));
+        im = single(im);
 
-        im = imread(strcat(image_path, '\', filterData(j).name));
-        im = double(im);
-
+        % Crop slightly
+        crop_size = 300;
+        im = imcrop(im, [(424-crop_size)/2 (424-crop_size)/2 crop_size-1 crop_size-1]);
+        
         % extract overlapping sub-patches into rows of 'patches'
         % every row is an RGB-channel
         patches = [ im2col(im(:, :, 1), [patch_width patch_width]) ;
@@ -28,7 +32,7 @@ function features = give_features_cpu(image_path, centroids, patch_width, stride
 
         % Preprocessing
         patches = bsxfun(@minus, patches, mean(patches, 2));
-        patches = bsxfun(@rdivide, patches, std(patches));
+        patches = bsxfun(@rdivide, patches, std(patches, 0, 2));
 
         % Activation function
         xx = sum(patches .^ 2, 2);
@@ -54,8 +58,13 @@ function features = give_features_cpu(image_path, centroids, patch_width, stride
         q4 = sum(sum(patches(half_rows+1:end, half_cols+1:end, :), 1), 2);
 
         % Concatenate
-        features = [q1(:);q2(:);q3(:);q4(:)]'; 
+        features(j, :) = [q1(:);q2(:);q3(:);q4(:)]';
+        toc
+        
     end
-    
-    toc;
+
+    % Normalize
+    features = bsxfun(@minus, features, mean(features, 2));
+    features = bsxfun(@rdivide, features, std(features, 0, 2));
+
 end
