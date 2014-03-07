@@ -8,7 +8,7 @@ from time import gmtime, strftime, time, sleep
 def unpack_wrapper(x):
 	return calc_feature(*x)
 
-def calc_feature(centroids, patch_width, stride, path, q):
+def calc_feature(centroids, patch_width, stride, path, p, q):
 	t = time()
 	image = misc.imread(path)
 
@@ -54,10 +54,12 @@ def calc_feature(centroids, patch_width, stride, path, q):
 	# Print time
 	#print "Finished %s, took %.2f seconds" %(path, time() - t)
 
-	q.put(1)
+	output = numpy.transpose(numpy.append(q1, numpy.append(q2, numpy.append(q3, q4))))
+
+	q.put((p, output))
 
 	# Concatenate and return
-	return numpy.transpose(numpy.append(q1, numpy.append(q2, numpy.append(q3, q4))))
+	return 0
 
 def patch_extract(image, patch_width, stride):
 	patches_r = util.view_as_windows(image[:, :, 0], (patch_width, patch_width), stride)
@@ -81,15 +83,16 @@ def patch_extract(image, patch_width, stride):
 def give_features(image_path, centroids, patch_width, stride):
 	# Get directory contents
 	listing = os.listdir(image_path)
+	listing.sort()
 
 	# Reserve memory
 	features = numpy.zeros((len(listing), 4*centroids.shape[0]))
 
 	# Multiprocessing
 	pool = Pool(12)
-	to = 12 #len(listing)
+	to = 1000 #len(listing)
 	q = multiprocessing.Manager().Queue()
-	pool_input = [(centroids, patch_width, stride, image_path + '/' + listing[p], q) for p in range(0, to)]
+	pool_input = [(centroids, patch_width, stride, image_path + '/' + listing[p], p, q) for p in range(0, to)]
 
 	t = time()
 
@@ -104,14 +107,27 @@ def give_features(image_path, centroids, patch_width, stride):
 
 	# Ready!
 	# Normalize
-	arr = numpy.array(output._value)
+	writeToFile(q)
+
+def writeToFile(q):
+	l = []
+	while q.qsize() > 0:
+		g = q.get()
+		l.append(g)
+
+	l.sort(key=lambda s: s[0])
+	k=l
+	k = [item[1] for item in l]
+
+	arr = numpy.array(k)
 	arr = arr - numpy.transpose(numpy.asmatrix(arr.mean(axis=1)))
 	arr = arr / numpy.asmatrix(arr.std(axis=1))
 
 	numpy.savetxt("/vol/temp/sreitsma/features_new.csv", arr, delimiter=",")
 
 def main():
-	give_features('/vol/temp/sreitsma/images_training_rev1', numpy.random.rand(400, 108), 6, 1)
+	centroids = array(csv_io.read_data("centroids.csv"))
+	give_features('/vol/temp/sreitsma/images_training_rev1', centroids, 12, 1)
 
 if __name__ == '__main__':
 	main()

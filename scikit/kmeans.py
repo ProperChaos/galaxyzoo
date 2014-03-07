@@ -48,5 +48,31 @@ def data_yield(im, w, d):
 
 	return vect
 
+def build_whitening_matrices(image_path, w, d, ppi):
+	listing = os.listdir(image_path)
+	listing.sort()
+
+	Msum = numpy.zeros(432)
+	Csum = numpy.zeros(432)
+
+	for im in range(0, len(listing)):
+		image = misc.imread(image_path + '/' + listing[im])
+		X = numpy.zeros((ppi, d*w*w))
+		for patch in range(0, ppi):
+			x = data_yield(image, w, d)
+			Msum += x
+		print im
+
+	M = Msum / len(listing)
+	C = numpy.zeros((432, 432))
+
+	for im in range(0, len(listing)):
+		image = misc.imread(image_path + '/' + listing[im])
+		X = numpy.zeros((ppi, d*w*w))
+		for patch in range(0, ppi):
+			x = data_yield(image, w, d)
+			
+		print im
+
 if __name__ == '__main__':
-	main()
+	build_whitening_matrices('C:\Zoo\images_subset', 12, 3, 10)

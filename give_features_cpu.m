@@ -7,7 +7,7 @@ function features = give_features_cpu(image_path, centroids, patch_width, stride
     % Reserve memory
     features = zeros(size(filterData, 1), 4*size(centroids, 1));
 
-    for j = 1:20 %size(filterData, 1)
+    for j = 1:10 %size(filterData, 1)
         % For every patch (in total (n-w+1)(n-w+1) patches):
         %   Take patch w-by-w-by-d
         %   Convert to vector N (=w*w*d)
@@ -47,6 +47,23 @@ function features = give_features_cpu(image_path, centroids, patch_width, stride
         rows = size(im, 1) - patch_width + 1;
         cols = size(im, 2) - patch_width + 1;
         patches = reshape(patches, rows, cols, size(centroids, 1));
+        
+        figure;
+        colormap gray;
+        axis image;
+        axis off;
+
+        c = 8;
+        for y = 1:c
+            for x = 1:c
+                subplot(c, c, (y-1)*c+x);
+                a = patches(:, :, (y-1)*c+x);
+                b = (a - min(a(:))) / (max(a(:)) - min(a(:)));
+                imagesc(b);
+                axis image;
+                axis off;
+            end
+        end
 
         % Pool
         half_rows = round(rows / 2);
@@ -59,8 +76,8 @@ function features = give_features_cpu(image_path, centroids, patch_width, stride
 
         % Concatenate
         features(j, :) = [q1(:);q2(:);q3(:);q4(:)]';
-        toc
-        
+        j
+        toc        
     end
 
     % Normalize

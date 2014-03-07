@@ -72,6 +72,7 @@ function features = give_features(image_path, centroids, patch_width, stride)
 
         % Concatenate, send to RAM
         features(j-from+1, :) = gather([q1(:);q2(:);q3(:);q4(:)]');
+        j
         toc
     end
     
