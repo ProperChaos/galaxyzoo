@@ -5,8 +5,8 @@ function features = give_features(image_path, centroids, patch_width, stride)
 	filterData = listing(~filter);
     
     % amount
-    from = 1;
-    to = 100;
+    from = 43501;
+    to = 43505%size(filterData, 1);
     
     % Reserve memory
     centroids = gpuArray(centroids);
@@ -74,10 +74,16 @@ function features = give_features(image_path, centroids, patch_width, stride)
         features(j-from+1, :) = gather([q1(:);q2(:);q3(:);q4(:)]');
         j
         toc
+        
+        if mod(j, 250) == 0
+            csvwrite('features_training.csv', features(1:j, :));
+        end
     end
     
     % Normalize
     features = bsxfun(@minus, features, mean(features, 2));
     features = bsxfun(@rdivide, features, std(features, 0, 2));
+    
+    csvwrite('features_training_norma.csv', features)
 
 end
