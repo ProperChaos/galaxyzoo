@@ -3,7 +3,8 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn import cross_validation
 from sklearn import linear_model
 from multiprocessing import Pool
-from numpy import array
+from numpy import array, loadtxt
+import gc
 
 def RandomForest():
 	train = array(csv_io.read_data("features_whitened.csv"))
@@ -29,7 +30,7 @@ def gen_chunks(reader, chunksize=500):
 def SGDRegression():
 	print "Loading features.csv..."
 	#train = array(csv_io.read_data("C:\\Zoo\\Code\\galaxyzoo\\scikit\\features.csv"))
-	reader = csv.reader(open('features.csv', 'rb'))
+	reader = csv.reader(open('/vol/temp/sreitsma/training_final.csv', 'rb'))
 
 	print "Loading solutions.csv..."
 	#target_or = array(csv_io.read_data("solutions.csv"))
@@ -56,31 +57,51 @@ def SGDRegression():
 			rf[i].partial_fit(chunkTr, chunkTa[:, i])
 		j += 1
 
-	reader = csv.reader(open('features.csv', 'rb'))
-	reader2 = csv.reader(open('solutions.csv', 'rb'))
-
-	test = gen_chunks(reader)
-	test_target = gen_chunks(reader2)
-	chunk = next(test)
-	chunk_target = next(test_target)
-	chunk = numpy.array(chunk).astype(numpy.float)
-	chunk_target = numpy.array(chunk_target).astype(numpy.float)
-
 	for i in range(0, 37):
-		predict = rf[i].predict(chunk)
-		delta = (predict-chunk_target[:,i])**2
-		rmse = numpy.sum(delta)
-
-		total += rmse
-
 		# Save
 		print "Saving classifier %i" %(i)
 		numpy.savetxt("model_coef_" + str(i) + ".txt", rf[i].coef_, delimiter=",")
 		numpy.savetxt("model_intercept_" + str(i) + ".txt", rf[i].intercept_, delimiter=",")
 
-	total = numpy.sqrt(total / 37 / 500)
+	print "Done!"
+	
+def LogisticRegression():
+	print "Loading features.csv..."
+	train = loadtxt('/vol/temp/sreitsma/training_final.csv', delimiter=',')
+	gc.collect()
+	
+	print "Loading solutions.csv..."
+	target_or = loadtxt('solutions.csv', delimiter=',')
+	gc.collect()
 
-	print "Done! RMSE: %.5f" %(total)
+	for i in range(0, target_or.shape[1]-1):
+		target = target_or[0:61500, i]
+
+		print "Learning classifier #%i" %(i)
+		rf = sklearn.linear_model.LogisticRegression()
+		rf.fit(train, target)
+		
+		print "Saving classifier #%i" %(i)
+		numpy.savetxt("model_coef_" + str(i) + ".txt", rf[i].coef_, delimiter=",")
+		numpy.savetxt("model_intercept_" + str(i) + ".txt", rf[i].intercept_, delimiter=",")
+		
+def RidgeRegression():
+	print "Loading features.csv..."
+	train = loadtxt('/vol/temp/sreitsma/training_final.csv', delimiter=',')
+	gc.collect()
+	
+	print "Loading solutions.csv..."
+	target_or = loadtxt('solutions.csv', delimiter=',')
+	gc.collect()
+
+	target = target_or[0:61500, :]
+
+	print "Learning classifier"
+	rf = sklearn.linear_model.Ridge(copy_X = False)
+	rf.fit(train, target)
+	
+	print "Saving classifier"
+	numpy.savetxt("model_coef" + ".txt", rf.coef_, delimiter=",")
 
 if __name__ == '__main__':
-	SGDRegression()
+	RidgeRegression()
