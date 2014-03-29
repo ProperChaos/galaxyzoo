@@ -1,12 +1,12 @@
 function features = give_features(image_path, centroids, patch_width, stride)
     % Get directory contents
-	listing = dir(image_path);
+	listing = dir(strcat(image_path, '\*.jpg'));
 	filter = [listing.isdir];
 	filterData = listing(~filter);
     
     % amount
-    from = 43501;
-    to = 43505%size(filterData, 1);
+    from = 1;
+    to = size(filterData, 1);
     
     % Reserve memory
     centroids = gpuArray(centroids);
@@ -76,7 +76,7 @@ function features = give_features(image_path, centroids, patch_width, stride)
         toc
         
         if mod(j, 250) == 0
-            csvwrite('features_training.csv', features(1:j, :));
+            csvwrite('features_training.csv', features(1:j-from+1, :));
         end
     end
     
