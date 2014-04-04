@@ -6,7 +6,7 @@ function features = give_features(image_path, centroids, patch_width, stride)
     
     % amount
     from = 1;
-    to = size(filterData, 1);
+    to = 1;
     
     % Reserve memory
     centroids = gpuArray(centroids);

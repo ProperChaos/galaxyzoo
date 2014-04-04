@@ -1,12 +1,12 @@
-function features = give_features(image_path, centroids, patch_width, stride)
+function features = give_features_cpu(image_path, centroids, patch_width, stride)
     % Get directory contents
 	listing = dir(image_path);
 	filter = [listing.isdir];
 	filterData = listing(~filter);
     
     % amount
-    from = 43501;
-    to = size(filterData, 1);
+    from = 1;
+    to = 1;
     
     % Reserve memory
 	features = zeros(to-from+1, 4*size(centroids, 1));

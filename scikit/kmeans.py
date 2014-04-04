@@ -12,8 +12,9 @@ def run_kmeans(image_path, save_path, k, d, w, ppi, M, P, Pinv):
 
 	listing = os.listdir(image_path)
 	listing.sort()
+	listing = [s for s in listing if s.endswith('.jpg')]
 
-	km = MiniBatchKMeans(k, init='k-means++', max_iter = 500, batch_size = ppi, compute_labels=False)
+	km = MiniBatchKMeans(k, init='k-means++', max_iter = 100, batch_size = ppi, compute_labels=False)
 
 	for im in range(0, len(listing)):
 		image = misc.imread(image_path + '/' + listing[im])
@@ -24,11 +25,7 @@ def run_kmeans(image_path, save_path, k, d, w, ppi, M, P, Pinv):
 
 		#with open(save_path + "/kmeans.log", "a") as logfile:
 		#	logfile.write('[' + strftime("%Y-%m-%d %H:%M:%S", gmtime()) + '] #' + str(im) + ' ' + listing[im] + '\n')
-		
-		# Local normalization (per patch)
-		X = X - numpy.asmatrix(X.mean(axis=1)).T
-		X = X / numpy.sqrt(X.var(axis=1) + 10)
-		X = numpy.nan_to_num(X)
+
 		#X = numpy.dot(X-M, P) # whitening
 		km.partial_fit(X)
 
@@ -61,13 +58,13 @@ def data_yield(im, w, d):
 def build_whitening_matrices(image_path, w, d, ppi):
 	listing = os.listdir(image_path)
 	listing.sort()
+	listing = [s for s in listing if s.endswith('.jpg')]
 
 	Msum = numpy.zeros(w*w*d)
 	Csum = numpy.zeros((w*w*d, w*w*d))
 
 	for im in range(0, len(listing)):
 		image = misc.imread(image_path + '/' + listing[im])
-		X = numpy.zeros((ppi, d*w*w))
 		for patch in range(0, ppi/10):
 			x = data_yield(image, w, d)
 			Msum += x
@@ -115,10 +112,10 @@ def build_whitening_matrices(image_path, w, d, ppi):
 	S,V = numpy.linalg.eig(C)
 
 	print "Computing P..."
-	P = numpy.dot(V, numpy.dot(numpy.diag(numpy.sqrt(1/(S + 0.1))), V.T))
+	P = numpy.dot(V, numpy.dot(numpy.diag(numpy.sqrt(1/(S + 0.001))), V.T))
 
 	print "Computing Pinv..."
-	a = numpy.diag(1/numpy.sqrt(1/(S + 0.1)))
+	a = numpy.diag(1/numpy.sqrt(1/(S + 0.001)))
 	Pinv = numpy.dot(V, numpy.dot(a, V.T))
 
 	return M,P,Pinv
@@ -127,6 +124,5 @@ if __name__ == '__main__':
 	subset = 'C:\\Zoo\\images_subset'
 	complete = 'C:\\Zoo\\images_training_rev1'
 
-	#M, P, Pinv = build_whitening_matrices(complete, 12, 3, 10)
-	M = P = Pinv = None
-	run_kmeans(complete, 'C:\\Zoo\\features', 400, 3, 12, 400, M, P, Pinv)
+	M, P, Pinv = build_whitening_matrices(subset, 12, 3, 10)
+	run_kmeans(subset, 'C:\\Zoo\\features\\new', 400, 3, 12, 400, M, P, Pinv)

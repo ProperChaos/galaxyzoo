@@ -1,7 +1,11 @@
-import numpy, sklearn
-from sklearn import linear_model
-from sklearn.externals import joblib
+import numpy, scipy, sklearn, csv_io, math, csv, itertools
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.externals import joblib
+from sklearn import cross_validation
+from sklearn import linear_model
+from multiprocessing import Pool
+from numpy import array, loadtxt
+import gc
 
 def normalize_sample(sample):
 	# Set negative to 0, for some reason numpy.clip does not work
@@ -103,56 +107,14 @@ def normalize_sample(sample):
 
 	return numpy.nan_to_num(sample)
 
-def SGDTest():
-	for k in range(3,4):
-		rf = []
-		for i in range(0, 37):
-			print "Loading model %i" %(i)
-			rf.append(sklearn.linear_model.SGDRegressor())
-			rf[i].coef_ = numpy.loadtxt("C:\\Zoo\\features\\sgd_classifier\\model_coef_" + str(k) + "_" + str(i) + ".txt", delimiter=",")
-			rf[i].intercept_ = numpy.loadtxt("C:\\Zoo\\features\\sgd_classifier\\model_intercept_" + str(k) + "_" + str(i) + ".txt", delimiter=",")
-
-		result = numpy.zeros((79975, 37));
-		j = 0
-
-		with open('C:\\Zoo\\features\\test.csv', 'rb') as f:
-			for line in f:
-				for i in range(0, 37):
-					result[j, i] = rf[i].predict(numpy.asarray(map(float, line.split(','))))
-				j += 1
-
-				if j % 100 == 0:
-					print "Predicting, %.2f%% done" %(1.*j/79975*100)
-
-		numpy.savetxt("result_no_scaling_" + str(k) + ".csv", result, delimiter=',', fmt='%.8f')
-
-		print "Scaling..."
-		for i in range(0, result.shape[0]):
-			sample = result[i, :]
-			sample = normalize_sample(sample)
-
-		numpy.savetxt("result_" + str(k) + ".csv", result, delimiter=',', fmt='%.8f')
-
-def RFTest():
-	rf = joblib.load('classifier.pkl')
-	result = numpy.zeros((79975, 37));
-	j = 0
-
-	with open('/vol/temp/sreitsma/test_set.csv', 'rb') as f:
-		for line in f:
-			result[j, :] = rf.predict(numpy.asarray(map(float, line.split(','))))
-			j += 1
-
-			print "Predicting, %.2f%% done" %(1.*j/79975*100)
-
-	numpy.savetxt("result_no_scaling_rf.csv", result, delimiter=',', fmt='%.8f')
-
+if __name__ == '__main__':
 	print "Scaling..."
+	result = loadtxt('C:\Zoo\Code\galaxyzoo\scikit\\result_no_scaling_3.csv', delimiter=',')
 	for i in range(0, result.shape[0]):
 		sample = result[i, :]
 		sample = normalize_sample(sample)
 
-	numpy.savetxt("result_rf.csv", result, delimiter=',', fmt='%.8f')
+		if i % 100 == 0:
+			print 100. * i / result.shape[0]
 
-if __name__ == '__main__':
-	SGDTest()
+	numpy.savetxt("result_3.csv", result, delimiter=',', fmt='%.8f')
