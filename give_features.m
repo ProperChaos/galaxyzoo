@@ -1,4 +1,5 @@
-function features = give_features(image_path, centroids, patch_width, stride)
+function features = give_features(image_path, centroids, patch_width, stride, P, M)
+
     % Get directory contents
 	listing = dir(strcat(image_path, '\*.jpg'));
 	filter = [listing.isdir];
@@ -6,11 +7,15 @@ function features = give_features(image_path, centroids, patch_width, stride)
     
     % amount
     from = 1;
-    to = 1;
+    to = size(filterData, 1);
     
     % Reserve memory
-    centroids = gpuArray(centroids);
-	features = zeros(to-from+1, 4*size(centroids, 1));
+	%features = zeros(to-from+1, 4*size(centroids, 1));
+    
+    cc = gpuArray(sum(centroids .^ 2, 2)');
+    file = matfile('15x15_redux/test.mat', 'Writable', true);
+    
+    start = tic;
 
     for j = from:to %1:a
         % For every patch (in total (n-w+1)(n-w+1) patches):
@@ -22,14 +27,15 @@ function features = give_features(image_path, centroids, patch_width, stride)
         tic
         im = imread(strcat(image_path, '\', filterData(j).name));
         
-        % Crop slightly
-        crop_size = 300;
+        % Crop to 207x207
+        crop_size = 150;
         im = imcrop(im, [(424-crop_size)/2 (424-crop_size)/2 crop_size-1 crop_size-1]);
+        
+        % Resize to 128x128
+        im = imresize(im, [15 15], 'Method', 'bilinear');
         
         % Send to GPU mem
         im = gpuArray(single(im));
-        
-        im_size = size(im);
 
         % extract overlapping sub-patches into rows of 'patches'
         % every row is an RGB-channel
@@ -37,28 +43,23 @@ function features = give_features(image_path, centroids, patch_width, stride)
                     im2col(im(:, :, 2), [patch_width patch_width]) ;
                     im2col(im(:, :, 3), [patch_width patch_width]) ]';
                 
-        clear im;
-
         % Preprocessing
-        patches = bsxfun(@minus, patches, mean(patches, 2));
-        patches = bsxfun(@rdivide, patches, std(patches, 0, 2));
+        patches = bsxfun(@rdivide, bsxfun(@minus, patches, mean(patches, 2)), sqrt(var(patches, [], 2)+10));
+        
+        % Whitening
+        patches = bsxfun(@minus, patches, M') * P;
 
         % Activation function
         xx = sum(patches .^ 2, 2);
-        cc = sum(centroids .^ 2, 2)';
         xc = 2*(patches * centroids');
         
         z = sqrt(bsxfun(@plus, cc, bsxfun(@minus, xx, xc)));
         mu = mean(z, 2);
         patches = max(0, bsxfun(@minus, mu, z));
-        
-        clear xx;
-        clear xc;
-        clear z;
 
         % Reshape
-        rows = im_size(1) - patch_width + 1;
-        cols = im_size(2) - patch_width + 1;
+        rows = size(im, 1) - patch_width + 1;
+        cols = size(im, 2) - patch_width + 1;
         patches = reshape(patches, rows, cols, size(centroids, 1));
 
         % Pool
@@ -71,19 +72,10 @@ function features = give_features(image_path, centroids, patch_width, stride)
         q4 = sum(sum(patches(half_rows+1:end, half_cols+1:end, :), 1), 2);
 
         % Concatenate, send to RAM
-        features(j-from+1, :) = gather([q1(:);q2(:);q3(:);q4(:)]');
-        j
-        toc
-        
-        if mod(j, 250) == 0
-            csvwrite('features_training.csv', features(1:j-from+1, :));
-        end
+        %features(j-from+1, :) = gather([q1(:);q2(:);q3(:);q4(:)]');
+        file.f(j-from+1, 1:4*size(centroids, 1)) = gather([q1(:);q2(:);q3(:);q4(:)]');
+        fprintf('%.2f%% done, elapsed time was %.3f seconds, ETA: %.2f minutes\n', (j-from) / (to-from) * 100.0, toc, toc(start) / (j-from) * (to-j) / 60)
     end
     
-    % Normalize
-    features = bsxfun(@minus, features, mean(features, 2));
-    features = bsxfun(@rdivide, features, std(features, 0, 2));
-    
-    csvwrite('features_training_norma.csv', features)
-
+    %save('features_training_new_15.mat', 'features');
 end

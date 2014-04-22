@@ -6,6 +6,7 @@ from sklearn import linear_model
 from multiprocessing import Pool
 from numpy import array, loadtxt
 import gc
+import h5py
 
 def RandomForest():
 	print "Loading features.csv..."
@@ -23,7 +24,7 @@ def RandomForest():
 	rf.fit(train, target)
 	joblib.dump(rf, 'classifier.pkl')
 
-def gen_chunks(reader, chunksize=500):
+def gen_chunks(reader, chunksize=1000):
 	chunk = []
 	for i, line in enumerate(reader):
 		if (i % chunksize == 0 and i > 0):
@@ -33,36 +34,74 @@ def gen_chunks(reader, chunksize=500):
 	yield chunk
 
 def SGDRegression():
-	for a in range(3,4):
-		rf = []
+	rf = []
 
-		for i in range(0, 37):
-			rf.append(sklearn.linear_model.SGDRegressor(loss='huber', epsilon=0.01, penalty = 'l2', alpha = 10**-a, eta0=0.005, shuffle=True,fit_intercept=True))
+	for i in range(0, 37):
+		rf.append(sklearn.linear_model.SGDRegressor(loss='huber', epsilon=0.01, penalty = 'l2', alpha = 10**-3, eta0=0.005, shuffle=True,fit_intercept=True))
 
-		for k in range(0,10):
-			reader = csv.reader(open('/vol/temp/sreitsma/training.csv', 'rb'))
-			reader2 = csv.reader(open('solutions.csv', 'rb'))
+	for k in range(0,15):
+		reader = csv.reader(open('C:\\Zoo\\Code\\galaxyzoo\\15x15_redux\\training_normalized_0-10000.csv', 'rb'))
+		#reader = h5py.File("..\\15x15_redux\\new_features_normalized.mat", "r")
+		reader2 = csv.reader(open('solutions.csv', 'rb'))
 
-			chunkTrain = gen_chunks(reader)
-			chunkTarget = gen_chunks(reader2)
-			j = 0
-			for chunkTr, chunkTa in itertools.izip(chunkTrain, chunkTarget):
-				chunkTr = numpy.array(chunkTr)
-				chunkTa = numpy.array(chunkTa)
+		chunkTrain = gen_chunks(reader)
+		chunkTarget = gen_chunks(reader2)
+		j = 0
+		for chunkTr, chunkTa in itertools.izip(chunkTrain, chunkTarget):
+			chunkTr = numpy.array(chunkTr)
+			chunkTa = numpy.array(chunkTa)
 
-				chunkTr = chunkTr.astype(numpy.float)
-				chunkTa = chunkTa.astype(numpy.float)
+			chunkTr = chunkTr.astype(numpy.float)
+			chunkTa = chunkTa.astype(numpy.float)
 
-				print "Processing chunk %i in iteration %i for alpha = %.6f" %(j, k, 10**-a)
-				for i in range(0,37):
-					rf[i].partial_fit(chunkTr, chunkTa[:, i])
-				j += 1
+			print "Processing chunk %i in iteration %i" %(j, k)
+			for i in range(0,37):
+				rf[i].partial_fit(chunkTr, chunkTa[:, i])
+			j += 1
 
-		for i in range(0, 37):
-			# Save
-			print "Saving classifier %i" %(i)
-			numpy.savetxt("model_coef_" + str(a) + "_" + str(i) + ".txt", rf[i].coef_, delimiter=",")
-			numpy.savetxt("model_intercept_" + str(a) + "_" + str(i) + ".txt", rf[i].intercept_, delimiter=",")
+	for i in range(0, 37):
+		# Save
+		print "Saving classifier %i" %(i)
+		numpy.savetxt("model_coef_" + str(i) + ".txt", rf[i].coef_, delimiter=",")
+		numpy.savetxt("model_intercept_" + str(i) + ".txt", rf[i].intercept_, delimiter=",")
+
+	print "Done!"
+
+def SGDRegressionHDF5():
+	rf = []
+
+	for i in range(0, 37):
+		rf.append(sklearn.linear_model.SGDRegressor(loss='huber', epsilon=0.01, penalty = 'l2', alpha = 10**-3, eta0=0.009, shuffle=True,fit_intercept=True))
+
+	for k in range(0,20):
+		reader = h5py.File("..\\15x15_redux\\new_features_normalized.mat", "r")
+		reader2 = csv.reader(open('solutions.csv', 'rb'))
+
+		chunkTarget = gen_chunks(reader2)
+		j = 0
+		for chunkTa in chunkTarget:
+			print "Reading chunk..."
+			if (j+1)*1000 > reader['f'].shape[1]:
+				end_bound = reader['f'].shape[1]
+			else:
+				end_bound = (j+1)*1000
+
+			chunkTr = reader['f'][:, j*1000:end_bound].T
+			chunkTa = numpy.array(chunkTa)
+
+			chunkTa = chunkTa.astype(numpy.float)
+
+			print "Fitting chunk %i in iteration %i" %(j, k)
+			for i in range(0,37):
+				rf[i].partial_fit(chunkTr, chunkTa[:, i])
+
+			j += 1
+
+	for i in range(0, 37):
+		# Save
+		print "Saving classifier %i" %(i)
+		numpy.savetxt("model_coef_" + str(i) + ".txt", rf[i].coef_, delimiter=",")
+		numpy.savetxt("model_intercept_" + str(i) + ".txt", rf[i].intercept_, delimiter=",")
 
 	print "Done!"
 	
@@ -106,4 +145,4 @@ def RidgeRegression():
 	numpy.savetxt("model_coef" + ".txt", rf.coef_, delimiter=",")
 
 if __name__ == '__main__':
-	SGDRegression()
+	SGDRegressionHDF5()

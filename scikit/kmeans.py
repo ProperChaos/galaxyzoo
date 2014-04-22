@@ -1,90 +1,179 @@
-import numpy, scipy, sklearn, csv_io, math, os, time
-import matplotlib.pyplot as plt
+import numpy as np
+import scipy, sklearn, csv_io, math, os, time
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.covariance import OAS
 from scipy import misc
 from numpy import array
 from estimate_covariance import get_covariance_estimation
+import shutil
+from joblib import Parallel, delayed
+import tempfile
+import joblib
 
-def run_kmeans(image_path, save_path, k, d, w, ppi, M, P, Pinv):
+def run_kmeans(image_path, save_path, k, d, w, ppi, ipb, M, P, Pinv):
 	listing = os.listdir(image_path)
 	listing.sort()
 	listing = [s for s in listing if s.endswith('.jpg')]
 
-	km = MiniBatchKMeans(k, init='random', max_iter = 1, batch_size = ppi, compute_labels=False)
+	km = MiniBatchKMeans(k, init='k-means++', max_iter = 100, batch_size = ppi, compute_labels=False)
+	X = np.zeros((ppi*ipb, d*w*w))
+	j = 0
+
+	for it in range(0, 10):
+		for im in range(0, len(listing)):
+			image = misc.imread(image_path + '/' + listing[im])
+			image = crop_image(image)
+
+			for patch in range(0, ppi):
+				x = data_yield(image, w, d)
+				X[j*ppi+patch, :] = x
+
+			j += 1
+
+			if j < ipb:
+				continue
+
+			print "Training k-means: iteration = %i, done = %.2f%%" %(it, 100. * im / len(listing))
+
+			j = 0
+			X = np.dot(X-M, P) # whitening
+
+			km.partial_fit(X)
+
+	centroids = km.cluster_centers_
+
+	np.savetxt(save_path + "/centroids.csv", centroids, delimiter=",")
+
+def run_spherical_kmeans(image_path, save_path, k, d, w, ppi, ipb, M, P, Pinv):
+	listing = os.listdir(image_path)
+	listing.sort()
+	listing = [s for s in listing if s.endswith('.jpg')]
+
+	X = np.zeros((ppi*len(listing), d*w*w))
+
+	print "Filling matrix..."
 
 	for im in range(0, len(listing)):
 		image = misc.imread(image_path + '/' + listing[im])
 		image = crop_image(image)
-		X = numpy.zeros((ppi, d*w*w))
+
 		for patch in range(0, ppi):
 			x = data_yield(image, w, d)
-			X[patch, :] = x
+			X[im*ppi+patch, :] = x
 
-		X = numpy.dot(X-M, P) # whitening
+		if im % 100 == 0:
+			print im
 
-		km.partial_fit(X)
+	print "Whitening..."
+	X = np.dot(X-M, P)
 
-		if im % 1 == 0:
-			print "Training k-means: %.2f%%" %(100. * im / len(listing))
+	print "Start training spherical kmeans..."
 
-			plt.figure()
-			for i in range(0, 10):
-				plt.subplot(5, 5, i+1)
-				cc = numpy.dot(X, Pinv) + M
-				p = numpy.reshape(cc[i, :], (10, 10, 3))
-				p = (p - numpy.min(p)) / (numpy.max(p) - numpy.min(p))
-				plt.imshow(p, interpolation='nearest')
-				plt.axis('off')
+	centroids = spherical_kmeans(X, k, 20, 5000)
 
-			clusters = numpy.dot(km.cluster_centers_, Pinv) + M
-			print numpy.mean(clusters)
-			for i in range(10, 20):
-				plt.subplot(5, 5, i+1)
+	np.savetxt(save_path + "/centroids.csv", centroids, delimiter=',')
 
-				p = numpy.reshape(clusters[i-10, :], (10, 10, 3))
-				p = (p - numpy.min(p)) / (numpy.max(p) - numpy.min(p))
-				plt.imshow(p, interpolation='nearest')
-				plt.axis('off')
+def spherical_kmeans(X, k, n_iter, batch_size=1000):
+    """
+    Do a spherical k-means.  Line by line port of Coates' matlab code.
 
-			plt.show()
+    Returns a (k, n_pixels) centroids matrix
+    """
 
-	centroids = km.cluster_centers_
+    # shape (n_samples, 1)
+    x2 = np.sum(X**2, 1, keepdims=True)
 
-	numpy.savetxt(save_path + "/centroids.csv", centroids, delimiter=",")
+    # randomly initialize centroids
+    #centroids = np.random.randn(k, X.shape[1]) * 0.1
+    centroids = X[1:k, :]
+
+    for iteration in range(1, n_iter + 1):
+        # shape (k, 1)
+        c2 = 0.5 * np.sum(centroids ** 2, 1, keepdims=True)
+
+        # shape (k, n_pixels)
+        summation = np.zeros((k, X.shape[1]))
+        counts = np.zeros((k, 1))
+        loss = 0
+
+        for i in range(0, X.shape[0], batch_size):
+            last_index = min(i + batch_size, X.shape[0])
+            m = last_index - i
+
+            # shape (k, batch_size) - shape (k, 1)
+            tmp = np.abs(np.dot(centroids, X[i:last_index, :].T) - c2)
+            # shape (batch_size, )
+            indices = np.argmax(tmp, 0)
+            distances = tmp[indices, range(batch_size)]
+            sims = np.argsort(distances)
+
+            # shape (1, batch_size)
+            val = np.max(tmp, 0, keepdims=True)
+
+            loss += np.sum((0.5 * x2[i:last_index]) - val.T)
+
+            # Don't use a sparse matrix here
+            S = np.zeros((batch_size, k))
+            S[range(batch_size), indices] = 1
+
+            # shape (k, n_pixels)
+            this_sum = np.dot(S.T, X[i:last_index, :])
+            summation += this_sum
+
+            this_counts = np.sum(S, 0, keepdims=True).T
+            counts += this_counts
+
+        # Sometimes raises RuntimeWarnings because some counts can be 0
+        centroids = summation / counts
+
+        bad_indices = np.where(counts <= 1)[0]
+        print bad_indices.shape
+
+        e = 0
+        for r in range(0, bad_indices.shape[0]):
+        	centroids[bad_indices[r], :] = X[sims[e], :]
+        	e += 1
+
+        assert not np.any(np.isnan(centroids))
+
+        print "K-means iteration {} of {}, loss {}".format(iteration, n_iter, loss)
+    return centroids
 
 def data_yield(im, w, d):
-	rand = numpy.random.random_integers(0, 207-w, 2);
+	rand = np.random.random_integers(0, 15-w, 2);
 	patch = im[rand[0]:rand[0]+w, rand[1]:rand[1]+w, 0:d]
-	vect = numpy.reshape(patch, w*w*d)
-	vectNew = vect - numpy.mean(vect)
+	vect = np.reshape(patch, w*w*d, order="F")
+	vectNew = vect - np.mean(vect)
 
 	if sum(vect) != 0:
-		vectNew = vectNew / numpy.sqrt(numpy.var(vect)+10)
+		vectNew = vectNew / np.sqrt(np.var(vect)+10)
 
 	return vectNew
 
 def crop_image(image):
 	# Crop here
-	crop_size = 207
+	crop_size = 150
 	startX = (image.shape[0] - crop_size) / 2
 	startY = (image.shape[0] - crop_size) / 2
 	endX = startX + crop_size
 	endY = startY + crop_size
 	image = image[startX:endX, startY:endY, :]
 
-	#image = scipy.misc.imresize(image, (69, 69), 'bilinear')
+	image = scipy.misc.imresize(image, (15, 15), 'bilinear')
 
 	return image
 
 def build_whitening_matrices(image_path, save_path, w, d, ppi):
+	print "Retrieving directory listing..."
 	listing = os.listdir(image_path)
 	listing.sort()
 	listing = [s for s in listing if s.endswith('.jpg')]
 
-	Msum = numpy.zeros(w*w*d)
-	Csum = numpy.zeros((w*w*d, w*w*d))
+	print "Pre-allocating memory..."
+	Msum = np.zeros(w*w*d)
+	Csum = np.zeros((w*w*d, w*w*d))
 
+	print "Start building whitening matrices..."
 	for im in range(0, len(listing)):
 		image = misc.imread(image_path + '/' + listing[im])
 		image = crop_image(image)
@@ -93,11 +182,12 @@ def build_whitening_matrices(image_path, save_path, w, d, ppi):
 			Msum += x
 			for pixel in range(0, w*w*d):
 				Csum[pixel, :] += x[pixel] * x
-		if im % 100 == 0:
+		if im % 1 == 0:
+			print listing[im]
 			print "Building whitening matrices (M, C): %.2f%%" %(100. * im / len(listing))
 
 	M = Msum / len(listing)
-	C = numpy.zeros((w*w*d, w*w*d))
+	C = np.zeros((w*w*d, w*w*d))
 	
 	print "Summing covariance matrix C..."
 
@@ -105,11 +195,11 @@ def build_whitening_matrices(image_path, save_path, w, d, ppi):
 		for j in range(0, w*w*d):
 			C[i, j] = 1./(len(listing) * ppi) * (Csum[i, j] - M[i]*M[j])
 
-	# Msum = numpy.zeros(w*w*d)
+	# Msum = np.zeros(w*w*d)
 
 	# for im in range(0, len(listing)):
 	# 	image = misc.imread(image_path + '/' + listing[im])
-	# 	X = numpy.zeros((ppi, d*w*w))
+	# 	X = np.zeros((ppi, d*w*w))
 	# 	for patch in range(0, ppi):
 	# 		x = data_yield(image, w, d)
 	# 		Msum += x
@@ -117,7 +207,7 @@ def build_whitening_matrices(image_path, save_path, w, d, ppi):
 
 	# M = Msum / len(listing)
 
-	# patches = numpy.zeros((len(listing)*(len(listing)/10), d*w*w))
+	# patches = np.zeros((len(listing)*(len(listing)/10), d*w*w))
 	# for im in range(0, len(listing)):
 	# 	image = misc.imread(image_path + '/' + listing[im])
 	# 	for patch in range(0, ppi/10):
@@ -125,32 +215,39 @@ def build_whitening_matrices(image_path, save_path, w, d, ppi):
 	# 		patches[im*10+patch, :] = x
 	# 	print im
 
-	# patches = numpy.nan_to_num(patches)
+	# patches = np.nan_to_num(patches)
 	# # Estimate covariance
 	# oas = OAS()
 	# oas.fit(patches)
 	# C = oas.covariance_
 
 	print "Computing eigenvalues and eigenvectors of C..."
-	U,S,V = numpy.linalg.svd(C)
+	U,S,V = np.linalg.svd(C)
 
 	print "Computing P..."
-	P = numpy.dot(U, numpy.dot(numpy.diag(numpy.sqrt(1/(S + 0.1))), U.T))
+	P = np.dot(U, np.dot(np.diag(np.sqrt(1/(S + 0.1))), U.T))
 
 	print "Computing Pinv..."
-	a = numpy.diag(numpy.sqrt(S + 0.1))
-	Pinv = numpy.dot(U, numpy.dot(a, U.T))
+	a = np.diag(np.sqrt(S + 0.1))
+	Pinv = np.dot(U, np.dot(a, U.T))
 
-	numpy.savetxt(save_path + "/whitening_P.csv", P, delimiter=",")
-	numpy.savetxt(save_path + "/whitening_Pinv.csv", Pinv, delimiter=",")
-	numpy.savetxt(save_path + "/whitening_M.csv", M, delimiter=",")
+	np.savetxt(save_path + "/whitening_P.csv", P, delimiter=",")
+	np.savetxt(save_path + "/whitening_Pinv.csv", Pinv, delimiter=",")
+	np.savetxt(save_path + "/whitening_M.csv", M, delimiter=",")
 
 	return M,P,Pinv
 
 if __name__ == '__main__':
-	subset = 'C:\\Zoo\\images_subset'
-	complete = 'C:\\Zoo\\images_training_rev1'
-	save_path = 'C:\\Zoo\\features\\new';
+	root = '/home/vagrant/data'
+	subset = root + '/images_subset'
+	complete = '/vagrant/images_training_rev1'
+	save_path = root + '/features';
+	w = 5
+	d = 3
+	k = 3000
+	ppi_learning = 10
+	ipb = 120
+	ppi_whitening = 20
 
-	#M, P, Pinv = build_whitening_matrices(subset, save_path, 10, 3, 10)
-	run_kmeans(subset, save_path, 10, 3, 10, 10, numpy.loadtxt(save_path + '/whitening_M.csv', delimiter=","), numpy.loadtxt(save_path + '/whitening_P.csv', delimiter=","), numpy.loadtxt(save_path + '/whitening_Pinv.csv', delimiter=","))
+	#M, P, Pinv = build_whitening_matrices(complete, save_path, w, d, ppi_whitening)
+	run_spherical_kmeans(subset, save_path, k, d, w, ppi_learning, ipb, np.loadtxt(save_path + '/whitening_M.csv', delimiter=","), np.loadtxt(save_path + '/whitening_P.csv', delimiter=","), np.loadtxt(save_path + '/whitening_Pinv.csv', delimiter=","))

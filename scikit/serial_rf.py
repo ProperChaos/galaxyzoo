@@ -8,7 +8,7 @@ import csv
 import joblib
 
 class SerialRandomForestModel:
-	def __init__(self, n_trees=50, n_jobs=-1, n_sgd_iter=15, chunk_size=1000):
+	def __init__(self, n_trees=30, n_jobs=-1, n_sgd_iter=15, chunk_size=1000):
 		self.sgd_models = []
 		self.n_sgd_iter = n_sgd_iter
 		self.chunk_size = chunk_size
@@ -17,7 +17,7 @@ class SerialRandomForestModel:
 		for i in range(0, 37):
 			self.sgd_models.append(SGDRegressor(loss='huber', penalty='l2', alpha=0.0001, eta0 = 0.009, shuffle=True,fit_intercept=True))
 
-		self.rf_model = RandomForestRegressor(n_estimators = n_trees, n_jobs = n_jobs)
+		self.rf_model = RandomForestRegressor(n_estimators = n_trees, n_jobs = n_jobs, max_depth=None, min_samples_split = 2, min_samples_leaf = 1, max_features="auto", bootstrap = True, oob_score=False, verbose = 3)
 
 	def fit(self, training_samples_file, training_solutions_file, train_sgd = True, save=True, save_directory='data/'):
 		"""
@@ -40,15 +40,15 @@ class SerialRandomForestModel:
 		# Predict using SGD regressor
 		self.logger.debug("Predicting using SGD model")
 		predictions = self._predict_sgd(training_samples_file, training_solutions_file)
+		predictions = predictions.astype(np.float32)
 
 		# Load solutions file
 		self.logger.debug("Loading solutions file to memory")
 		solutions = np.genfromtxt(training_solutions_file, dtype=float, delimiter=',')
+		solutions = solutions.astype(np.float32)
 
 		# Fit random forest
 		self.logger.debug("Fitting random forest")
-		print predictions.shape
-		print solutions.shape
 		self.rf_model.fit(predictions, solutions)
 
 		if save:
@@ -59,23 +59,24 @@ class SerialRandomForestModel:
 
 	def load_sgd_model_from_disk(self, n_predictors, directory='data/'):
 		for i in range(0, n_predictors):
-			print "Loading model %i/%i" %(i+1, n_predictors)
+			self.logger.debug("Loading model %i/%i", i+1, n_predictors)
 			self.sgd_models[i].coef_ = np.loadtxt(directory + "model_coef_" + str(i) + ".txt", delimiter=",")
 			self.sgd_models[i].intercept_ = np.loadtxt(directory + "model_intercept_" + str(i) + ".txt", delimiter=",")
 
 	def load_rf_model_from_disk(self, directory='data/'):
-		self.rf_model = joblib.load(data + "rf.pkl")
+		self.logger.debug("Loading random forest model")
+		self.rf_model = joblib.load(directory + "rf.pkl")
 
 	def predict(self, test_samples_file, n_predictors, scale = True, save = True, save_directory = 'data/'):
 		reader = h5py.File(test_samples_file, 'r')
-		result = numpy.zeros((reader['f'].shape[1], n_predictors));
+		result = np.zeros((reader['f'].shape[1], n_predictors));
 		j = 0
 
 		for j in range(0, reader['f'].shape[1]):
 			sample = reader['f'][:, j].T
 
 			for i in range(0, n_predictors):
-				result[j, i] = rf[i].predict(sample)
+				result[j, i] = self.sgd_models[i].predict(sample)
 			j += 1
 
 			if j % 100 == 0:
@@ -86,13 +87,13 @@ class SerialRandomForestModel:
 
 		if scale:
 			self.logger.debug("Scaling")
-			for i in range(0, result.shape[0]):
-				sample = result[i, :]
+			for i in range(0, rf_predictions.shape[0]):
+				sample = rf_predictions[i, :]
 				sample = self._normalize_sample(sample)
 
 		if save:
 			self.logger.debug("Saving to disk")
-			np.savetxt(save_directory + "rf_result.csv", delimiter=',', fmt='%.6f')
+			np.savetxt(save_directory + "rf_result.csv", rf_predictions, delimiter=',', fmt='%.6f')
 
 		self.logger.debug("Done")
 
@@ -174,7 +175,7 @@ class SerialRandomForestModel:
 
 			chunkTr = training_samples_reader['f'][:, j*self.chunk_size:end_bound].T
 
-			self.logger.debug("Predicting chunk %i/%i", j+1, n_chunks)
+			self.logger.debug("Predicting chunk %i/%i", j+1, n_chunks+1)
 
 			for i in range(0, n_predictors):
 				predictions[j*self.chunk_size:end_bound, i] = self.sgd_models[i].predict(chunkTr)
@@ -183,12 +184,11 @@ class SerialRandomForestModel:
 
 	def _normalize_sample(self, sample):
 		# Regularization epsilon
-		epsilon = 10**-10
+		epsilon = 10**-8
 
-		# Set negative to 0, for some reason numpy.clip does not work
-		for c in range(0, sample.shape[0]):
-			if sample[c] < 0:
-				sample[c] = 0
+		# Clip to range
+		sample[sample < 0] = 0
+		sample[sample > 1] = 1
 
 		# Normalize Class 1
 		total = sample[0] + sample[1] + sample[2]
@@ -282,7 +282,7 @@ class SerialRandomForestModel:
 		sample[35] *= factor
 		sample[36] *= factor
 
-		return numpy.nan_to_num(sample)
+		return np.nan_to_num(sample)
 
 if __name__ == '__main__':
 	srfm = SerialRandomForestModel(n_jobs = 1)
@@ -297,5 +297,6 @@ if __name__ == '__main__':
 	logger.addHandler(ch)
 
 	srfm.load_sgd_model_from_disk(n_predictors = 37)
+	#srfm.load_rf_model_from_disk()
 	srfm.fit('../15x15_redux/new_features_normalized.mat', 'solutions.csv', train_sgd = False)
 	srfm.predict('../15x15_redux/test_normalized.mat', n_predictors = 37)

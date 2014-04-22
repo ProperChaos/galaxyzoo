@@ -6,7 +6,7 @@ function features = give_features_cpu(image_path, centroids, patch_width, stride
     
     % amount
     from = 1;
-    to = 1;
+    to = size(filterData, 1);
     
     % Reserve memory
 	features = zeros(to-from+1, 4*size(centroids, 1));
@@ -21,12 +21,12 @@ function features = give_features_cpu(image_path, centroids, patch_width, stride
         tic
         im = imread(strcat(image_path, '\', filterData(j).name));
         
-        % Crop slightly
-        crop_size = 300;
+        % Crop to 207x207
+        crop_size = 207;
         im = imcrop(im, [(424-crop_size)/2 (424-crop_size)/2 crop_size-1 crop_size-1]);
         
-        % Resize
-        %im = imresize(im, 0.5);
+        % Resize to 128x128
+        im = imresize(im, [128 128]);
         
         % Send to GPU mem
         im = single(im);
