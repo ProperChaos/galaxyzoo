@@ -6,7 +6,7 @@ import h5py
 
 def normalize_sample(sample):
 	# Regularization epsilon
-	epsilon = 10**-15
+	epsilon = 10**-8
 
 	# Set negative to 0, for some reason numpy.clip does not work
 	for c in range(0, sample.shape[0]):

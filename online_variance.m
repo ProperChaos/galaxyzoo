@@ -1,9 +1,9 @@
-function variance = online_variance(data)
+function variance = online_variance(data, rows)
     n = 0;
     mean = zeros(1, 12000);
     m2 = zeros(1, 12000);
     
-    for i = 1:61578
+    for i = 1:rows
         n = n + 1;
         delta = data.f(i, :) - mean;
         mean = mean + delta / n;

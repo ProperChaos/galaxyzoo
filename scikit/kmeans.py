@@ -9,245 +9,191 @@ import shutil
 from joblib import Parallel, delayed
 import tempfile
 import joblib
+import logging
 
-def run_kmeans(image_path, save_path, k, d, w, ppi, ipb, M, P, Pinv):
-	listing = os.listdir(image_path)
-	listing.sort()
-	listing = [s for s in listing if s.endswith('.jpg')]
+class KMeansTrainer():
+	def __init__(self, images_directory, save_directory, do_rotation_invariant_training, k, patch_width, crop_size, image_size, patches_per_image, compute_whitening, load_whitening, n_iterations = 10, channels = 3):
+		assert(compute_whitening ^ load_whitening)
 
-	km = MiniBatchKMeans(k, init='k-means++', max_iter = 100, batch_size = ppi, compute_labels=False)
-	X = np.zeros((ppi*ipb, d*w*w))
-	j = 0
+		self.do_rotation_invariant_training = do_rotation_invariant_training
+		self.k = k
+		self.patch_width = patch_width
+		self.patches_per_image = patches_per_image
+		self.compute_whitening = compute_whitening
+		self.load_whitening = load_whitening
+		self.channels = channels
+		self.crop_size = crop_size
+		self.image_size = image_size
+		self.images_directory = images_directory
+		self.save_directory = save_directory
+		self.n_iterations = n_iterations
 
-	for it in range(0, 10):
+		self.logger = logging.getLogger('mainlogger')
+		self.logger.setLevel(logging.DEBUG)
+
+		ch = logging.StreamHandler()
+		ch.setLevel(logging.DEBUG)
+
+		self.logger.addHandler(ch)
+
+		if self.load_whitening:
+			self.M = np.loadtxt(save_directory + '/M.csv', delimiter=",")
+			self.P = np.loadtxt(save_directory + '/P.csv', delimiter=",")
+
+	def _rotate_square_vector(self, X, degrees):
+		""" Rotates a square vector degrees amount of degrees in steps of 90 degrees. Returns a flattened vector. """
+
+		ret = np.copy(X)
+		times = int(round(degrees / 90.0))
+
+		# Loop through patches in X
+		for i, o in enumerate(ret):
+			temp = np.rot90(o.reshape((self.patch_width, self.patch_width, self.channels), order="F"), times)
+			ret[i,:] = np.reshape(temp, self.patch_width**2*self.channels, order="F")
+
+		return ret
+
+	def _yield_random_patch(self, image):
+		""" Yields a flattened random patch of size patch_width by patch_width. """
+
+		rand = np.random.random_integers(0, self.image_size-self.patch_width, 2);
+		patch = image[rand[0]:rand[0]+self.patch_width, rand[1]:rand[1]+self.patch_width, :]
+		vect = np.reshape(patch, self.patch_width**2*self.channels, order="F")
+		vectNew = vect - np.mean(vect)
+
+		if sum(vect) != 0:
+			vectNew = vectNew / np.sqrt(np.var(vect)+10)
+
+		return vectNew
+
+	def _crop_image(self, image):
+		""" Crops the image. Returns a three-dimensional array. """
+
+		startX = (image.shape[0] - self.crop_size) / 2
+		startY = (image.shape[0] - self.crop_size) / 2
+		endX = startX + self.crop_size
+		endY = startY + self.crop_size
+		image = image[startX:endX, startY:endY, :]
+
+		return image
+
+	def _resize_image(self, image):
+		""" Resizes an image. Returns a three-dimensional array. """
+		return scipy.misc.imresize(image, (self.image_size, self.image_size), 'bilinear')
+
+	def whiten(self):
+		""" Computes whitening matrices P, Pinv and M. """
+
+		self.logger.debug("Fetching directory listing")
+
+		listing = os.listdir(self.images_directory)
+		listing.sort()
+		listing = [s for s in listing if s.endswith('.jpg')]
+
+		self.logger.debug("Allocating memory")
+
+		Msum = np.zeros(self.patch_width**2*self.channels)
+		Csum = np.zeros((self.patch_width**2*self.channels, self.patch_width**2*self.channels))
+
+		self.logger.debug("Phase 1: Summing individual covariance terms")
+		ppi_whitening = self.patches_per_image
+
 		for im in range(0, len(listing)):
-			image = misc.imread(image_path + '/' + listing[im])
-			image = crop_image(image)
+			image = misc.imread(self.images_directory + '/' + listing[im])
+			image = self._crop_image(image)
+			image = self._resize_image(image)
+			for patch in range(0, ppi_whitening):
+				x = self._yield_random_patch(image)
+				Msum += x
 
-			for patch in range(0, ppi):
-				x = data_yield(image, w, d)
-				X[j*ppi+patch, :] = x
+				for pixel in range(0, self.patch_width**2*self.channels):
+					Csum[pixel, :] += x[pixel] * x
 
-			j += 1
+			if im % 100 == 0:
+				self.logger.debug("Phase 1 progress: %.2f%%", 100. * im / len(listing))
 
-			if j < ipb:
-				continue
+		M = Msum / len(listing)
+		C = np.zeros((self.patch_width**2*self.channels, self.patch_width**2*self.channels))
+		
+		self.logger.debug("Phase 2: Summing total covariance matrix")
 
-			print "Training k-means: iteration = %i, done = %.2f%%" %(it, 100. * im / len(listing))
+		for i in range(0, self.patch_width**2*self.channels):
+			for j in range(0, self.patch_width**2*self.channels):
+				C[i, j] = 1./(len(listing) * ppi_whitening) * (Csum[i, j] - M[i]*M[j])
 
-			j = 0
-			X = np.dot(X-M, P) # whitening
+		self.logger.debug("Phase 3: Computing SVD")
+		U, S, V = np.linalg.svd(C)
 
-			km.partial_fit(X)
+		self.logger.debug("Phase 4: Computing P and Pinv")
+		P = np.dot(U, np.dot(np.diag(np.sqrt(1/(S + 0.1))), U.T))
+		a = np.diag(np.sqrt(S + 0.1))
+		Pinv = np.dot(U, np.dot(a, U.T))
 
-	centroids = km.cluster_centers_
+		self.P = P
+		self.M = M
 
-	np.savetxt(save_path + "/centroids.csv", centroids, delimiter=",")
+		return M, P, Pinv
 
-def run_spherical_kmeans(image_path, save_path, k, d, w, ppi, ipb, M, P, Pinv):
-	listing = os.listdir(image_path)
-	listing.sort()
-	listing = [s for s in listing if s.endswith('.jpg')]
+	def fit(self):
+		""" Fits the k-means on the images and returns the centroids. """
 
-	X = np.zeros((ppi*len(listing), d*w*w))
+		listing = os.listdir(self.images_directory)
+		listing.sort()
+		listing = [s for s in listing if s.endswith('.jpg')]
 
-	print "Filling matrix..."
+		km = MiniBatchKMeans(self.k, init='k-means++', compute_labels=False)
+		images_per_batch = math.ceil(self.k / self.patches_per_image)
+		X = np.zeros((self.patches_per_image*images_per_batch, self.patch_width**2*self.channels))
+		j = 0
 
-	for im in range(0, len(listing)):
-		image = misc.imread(image_path + '/' + listing[im])
-		image = crop_image(image)
+		for it in range(0, self.n_iterations):
+			for im in range(0, len(listing)):
+				image = misc.imread(self.images_directory + '/' + listing[im])
+				image = self._crop_image(image)
+				image = self._resize_image(image)
 
-		for patch in range(0, ppi):
-			x = data_yield(image, w, d)
-			X[im*ppi+patch, :] = x
+				for patch in range(0, self.patches_per_image):
+					x = self._yield_random_patch(image)
+					X[j*self.patches_per_image+patch, :] = x
 
-		if im % 100 == 0:
-			print im
+				j += 1
 
-	print "Whitening..."
-	X = np.dot(X-M, P)
+				if j < images_per_batch:
+					continue
 
-	print "Start training spherical kmeans..."
+				self.logger.debug("Training k-means: iteration = %i, done = %.2f%%", it, 100. * (im+1) / len(listing))
 
-	centroids = spherical_kmeans(X, k, 20, 5000)
+				j = 0
 
-	np.savetxt(save_path + "/centroids.csv", centroids, delimiter=',')
+				if self.do_rotation_invariant_training:
+					X90 = self._rotate_square_vector(X, 90)
+					X180 = self._rotate_square_vector(X, 180)
+					X270 = self._rotate_square_vector(X, 270)
 
-def spherical_kmeans(X, k, n_iter, batch_size=1000):
-    """
-    Do a spherical k-means.  Line by line port of Coates' matlab code.
+				X = np.dot(X-self.M, self.P) # whitening
 
-    Returns a (k, n_pixels) centroids matrix
-    """
+				if self.do_rotation_invariant_training:
+					X90 = np.dot(X90-self.M, self.P)
+					X180 = np.dot(X180-self.M, self.P)
+					X270 = np.dot(X270-self.M, self.P)
 
-    # shape (n_samples, 1)
-    x2 = np.sum(X**2, 1, keepdims=True)
+					km.partial_fit(X, X90, X180, X270)
+				else:
+					km.partial_fit(X)
 
-    # randomly initialize centroids
-    #centroids = np.random.randn(k, X.shape[1]) * 0.1
-    centroids = X[1:k, :]
+		return km.cluster_centers_
 
-    for iteration in range(1, n_iter + 1):
-        # shape (k, 1)
-        c2 = 0.5 * np.sum(centroids ** 2, 1, keepdims=True)
+	def run_pipeline(self):
+		if self.compute_whitening:
+			M, P, Pinv = self.whiten()
+			np.savetxt(self.save_directory + "/M.csv", M, delimiter=",")
+			np.savetxt(self.save_directory + "/P.csv", P, delimiter=",")
+			np.savetxt(self.save_directory + "/Pinv.csv", Pinv, delimiter=",")
 
-        # shape (k, n_pixels)
-        summation = np.zeros((k, X.shape[1]))
-        counts = np.zeros((k, 1))
-        loss = 0
+		centroids = self.fit()
 
-        for i in range(0, X.shape[0], batch_size):
-            last_index = min(i + batch_size, X.shape[0])
-            m = last_index - i
-
-            # shape (k, batch_size) - shape (k, 1)
-            tmp = np.abs(np.dot(centroids, X[i:last_index, :].T) - c2)
-            # shape (batch_size, )
-            indices = np.argmax(tmp, 0)
-            distances = tmp[indices, range(batch_size)]
-            sims = np.argsort(distances)
-
-            # shape (1, batch_size)
-            val = np.max(tmp, 0, keepdims=True)
-
-            loss += np.sum((0.5 * x2[i:last_index]) - val.T)
-
-            # Don't use a sparse matrix here
-            S = np.zeros((batch_size, k))
-            S[range(batch_size), indices] = 1
-
-            # shape (k, n_pixels)
-            this_sum = np.dot(S.T, X[i:last_index, :])
-            summation += this_sum
-
-            this_counts = np.sum(S, 0, keepdims=True).T
-            counts += this_counts
-
-        # Sometimes raises RuntimeWarnings because some counts can be 0
-        centroids = summation / counts
-
-        bad_indices = np.where(counts <= 1)[0]
-        print bad_indices.shape
-
-        e = 0
-        for r in range(0, bad_indices.shape[0]):
-        	centroids[bad_indices[r], :] = X[sims[e], :]
-        	e += 1
-
-        assert not np.any(np.isnan(centroids))
-
-        print "K-means iteration {} of {}, loss {}".format(iteration, n_iter, loss)
-    return centroids
-
-def data_yield(im, w, d):
-	rand = np.random.random_integers(0, 15-w, 2);
-	patch = im[rand[0]:rand[0]+w, rand[1]:rand[1]+w, 0:d]
-	vect = np.reshape(patch, w*w*d, order="F")
-	vectNew = vect - np.mean(vect)
-
-	if sum(vect) != 0:
-		vectNew = vectNew / np.sqrt(np.var(vect)+10)
-
-	return vectNew
-
-def crop_image(image):
-	# Crop here
-	crop_size = 150
-	startX = (image.shape[0] - crop_size) / 2
-	startY = (image.shape[0] - crop_size) / 2
-	endX = startX + crop_size
-	endY = startY + crop_size
-	image = image[startX:endX, startY:endY, :]
-
-	image = scipy.misc.imresize(image, (15, 15), 'bilinear')
-
-	return image
-
-def build_whitening_matrices(image_path, save_path, w, d, ppi):
-	print "Retrieving directory listing..."
-	listing = os.listdir(image_path)
-	listing.sort()
-	listing = [s for s in listing if s.endswith('.jpg')]
-
-	print "Pre-allocating memory..."
-	Msum = np.zeros(w*w*d)
-	Csum = np.zeros((w*w*d, w*w*d))
-
-	print "Start building whitening matrices..."
-	for im in range(0, len(listing)):
-		image = misc.imread(image_path + '/' + listing[im])
-		image = crop_image(image)
-		for patch in range(0, ppi):
-			x = data_yield(image, w, d)
-			Msum += x
-			for pixel in range(0, w*w*d):
-				Csum[pixel, :] += x[pixel] * x
-		if im % 1 == 0:
-			print listing[im]
-			print "Building whitening matrices (M, C): %.2f%%" %(100. * im / len(listing))
-
-	M = Msum / len(listing)
-	C = np.zeros((w*w*d, w*w*d))
-	
-	print "Summing covariance matrix C..."
-
-	for i in range(0, w*w*d):
-		for j in range(0, w*w*d):
-			C[i, j] = 1./(len(listing) * ppi) * (Csum[i, j] - M[i]*M[j])
-
-	# Msum = np.zeros(w*w*d)
-
-	# for im in range(0, len(listing)):
-	# 	image = misc.imread(image_path + '/' + listing[im])
-	# 	X = np.zeros((ppi, d*w*w))
-	# 	for patch in range(0, ppi):
-	# 		x = data_yield(image, w, d)
-	# 		Msum += x
-	# 	print im
-
-	# M = Msum / len(listing)
-
-	# patches = np.zeros((len(listing)*(len(listing)/10), d*w*w))
-	# for im in range(0, len(listing)):
-	# 	image = misc.imread(image_path + '/' + listing[im])
-	# 	for patch in range(0, ppi/10):
-	# 		x = data_yield(image, w, d)
-	# 		patches[im*10+patch, :] = x
-	# 	print im
-
-	# patches = np.nan_to_num(patches)
-	# # Estimate covariance
-	# oas = OAS()
-	# oas.fit(patches)
-	# C = oas.covariance_
-
-	print "Computing eigenvalues and eigenvectors of C..."
-	U,S,V = np.linalg.svd(C)
-
-	print "Computing P..."
-	P = np.dot(U, np.dot(np.diag(np.sqrt(1/(S + 0.1))), U.T))
-
-	print "Computing Pinv..."
-	a = np.diag(np.sqrt(S + 0.1))
-	Pinv = np.dot(U, np.dot(a, U.T))
-
-	np.savetxt(save_path + "/whitening_P.csv", P, delimiter=",")
-	np.savetxt(save_path + "/whitening_Pinv.csv", Pinv, delimiter=",")
-	np.savetxt(save_path + "/whitening_M.csv", M, delimiter=",")
-
-	return M,P,Pinv
+		np.savetxt(self.save_directory + "/centroids.csv", centroids, delimiter=",")
 
 if __name__ == '__main__':
-	root = '/home/vagrant/data'
-	subset = root + '/images_subset'
-	complete = '/vagrant/images_training_rev1'
-	save_path = root + '/features';
-	w = 5
-	d = 3
-	k = 3000
-	ppi_learning = 10
-	ipb = 120
-	ppi_whitening = 20
-
-	#M, P, Pinv = build_whitening_matrices(complete, save_path, w, d, ppi_whitening)
-	run_spherical_kmeans(subset, save_path, k, d, w, ppi_learning, ipb, np.loadtxt(save_path + '/whitening_M.csv', delimiter=","), np.loadtxt(save_path + '/whitening_P.csv', delimiter=","), np.loadtxt(save_path + '/whitening_Pinv.csv', delimiter=","))
+	km = KMeansTrainer('/vagrant/images_training_rev1', '/vagrant/kmeans_results/rot_inv', do_rotation_invariant_training = True, k = 3000, patch_width = 5, crop_size = 150, image_size = 15, patches_per_image = 25, compute_whitening = True, load_whitening = False, n_iterations = 10)
+	km.run_pipeline()
