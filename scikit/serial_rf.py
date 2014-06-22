@@ -310,7 +310,7 @@ class SerialRandomForestModel:
 		return np.nan_to_num(sample)
 
 if __name__ == '__main__':
-	srfm = SerialRandomForestModel(n_jobs = 4, n_sgd_iter = 10)
+	srfm = SerialRandomForestModel(n_jobs = 1)
 
 	# Debug + fit
 	logger = logging.getLogger('mainlogger')
@@ -324,14 +324,14 @@ if __name__ == '__main__':
 	#srfm.load_sgd_model_from_disk(n_predictors = 37)
 	#srfm.load_rf_model_from_disk()
 
-	srfm.fit('../rot_var/TRAINING_norma.mat', 'solutions_tr.csv', train_sgd = True)
-	predictions = srfm.predict('../rot_var/TEST_norma.mat', n_predictors = 37)
+	srfm.fit('../rot_inv/TRAINING_norma.mat', 'solutions.csv', train_sgd = True)
+	predictions = srfm.predict('../rot_inv/TEST_norma.mat', n_predictors = 37)
 
-	solutions = np.genfromtxt('solutions_te.csv', dtype=float, delimiter=',')
-	solutions = solutions.astype(np.float32)
-	solutions = solutions[0:5000, :]
+	#solutions = np.genfromtxt('solutions_te.csv', dtype=float, delimiter=',')
+	# = solutions.astype(np.float32)
+	#solutions = solutions[0:5000, :]
 
-	rmse, rvse = srfm.score(predictions, solutions)
+	#rmse, rvse = srfm.score(predictions, solutions)
 
-	logger.debug('RMSE: %.6f', rmse)
-	logger.debug('RVSE: %.6f', rvse)
+	#logger.debug('RMSE: %.6f', rmse)
+	#logger.debug('RVSE: %.6f', rvse)
