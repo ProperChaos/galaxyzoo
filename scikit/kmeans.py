@@ -112,7 +112,7 @@ class KMeansTrainer():
 			if im % 100 == 0:
 				self.logger.debug("Phase 1 progress: %.2f%%", 100. * im / len(listing))
 
-		M = Msum / len(listing)
+		M = Msum / len(listing) / ppi_whitening
 		C = np.zeros((self.patch_width**2*self.channels, self.patch_width**2*self.channels))
 		
 		self.logger.debug("Phase 2: Summing total covariance matrix")
