@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 fig, ax = plt.subplots(1)
-data = np.array([0.10789, 0.09923])
+data = np.array([0.10789, 0.10256])
 
 ax.set_ylabel('RMSE')
 n = 2

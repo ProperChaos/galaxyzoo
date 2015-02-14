@@ -59,17 +59,17 @@ class SerialRandomForestModel:
 
 		self.logger.debug("Done")
 
-	def load_sgd_model_from_disk(self, n_predictors, directory='data_rot_inv/'):
+	def load_sgd_model_from_disk(self, n_predictors, directory='data_rot_var/'):
 		for i in range(0, n_predictors):
 			self.logger.debug("Loading model %i/%i", i+1, n_predictors)
 			self.sgd_models[i].coef_ = np.loadtxt(directory + "model_coef_" + str(i) + ".txt", delimiter=",")
 			self.sgd_models[i].intercept_ = np.loadtxt(directory + "model_intercept_" + str(i) + ".txt", delimiter=",")
 
-	def load_rf_model_from_disk(self, directory='data_rot_inv/'):
+	def load_rf_model_from_disk(self, directory='data_rot_var/'):
 		self.logger.debug("Loading random forest model")
 		self.rf_model = joblib.load(directory + "rf.pkl")
 
-	def predict(self, test_samples_file, n_predictors, scale = True, save = True, save_directory = 'data_rot_inv/'):
+	def predict(self, test_samples_file, n_predictors, scale = True, save = True, save_directory = 'data_rot_var/'):
 		reader = h5py.File(test_samples_file, 'r')
 		result = np.zeros((reader['f'].shape[1], n_predictors))
 		j = 0
@@ -321,17 +321,23 @@ if __name__ == '__main__':
 
 	logger.addHandler(ch)
 
-	#srfm.load_sgd_model_from_disk(n_predictors = 37)
-	#srfm.load_rf_model_from_disk()
+	srfm.load_sgd_model_from_disk(n_predictors = 37)
+	srfm.load_rf_model_from_disk()
 
-	srfm.fit('../rot_inv/TRAINING_norma.mat', 'solutions.csv', train_sgd = True)
-	predictions = srfm.predict('../rot_inv/TEST_norma.mat', n_predictors = 37)
+	#srfm.fit('../rot_inv/TRAINING_norma.mat', 'solutions.csv', train_sgd = True)
+	predictions = srfm.predict('../rot_var/TRAINING_norma.mat', n_predictors = 37)
 
-	#solutions = np.genfromtxt('solutions_te.csv', dtype=float, delimiter=',')
-	# = solutions.astype(np.float32)
-	#solutions = solutions[0:5000, :]
+	solutions = np.genfromtxt('solutions.csv', dtype=float, delimiter=',')
+	solutions = solutions.astype(np.float32)
+	solutions = solutions[0:5000, :]
+	predictions = predictions[0:5000, :]
 
-	#rmse, rvse = srfm.score(predictions, solutions)
+	delta = predictions - solutions
+	se = delta**2
 
-	#logger.debug('RMSE: %.6f', rmse)
-	#logger.debug('RVSE: %.6f', rvse)
+	np.savetxt("error_var.csv", se, delimiter=',', fmt='%.6f')
+
+	rmse, rvse = srfm.score(predictions, solutions)
+
+	logger.debug('RMSE: %.6f', rmse)
+	logger.debug('RVSE: %.6f', rvse)
