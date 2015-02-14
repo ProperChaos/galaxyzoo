@@ -7,6 +7,7 @@ from multiprocessing import Pool
 from numpy import array, loadtxt
 import gc
 
+# Scale values to correct probability distribution. Galaxy Zoo competition specific.
 def normalize_sample(sample):
 	# Set negative to 0, for some reason numpy.clip does not work
 	for c in range(0, sample.shape[0]):

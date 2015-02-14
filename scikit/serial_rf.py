@@ -9,6 +9,7 @@ import joblib
 import cProfile
 import time
 
+# Does a RF pass over the data after initial classification. Not necessary but improves results.
 class SerialRandomForestModel:
 	def __init__(self, n_trees=30, n_jobs=-1, n_sgd_iter=15, chunk_size=100):
 		self.sgd_models = []

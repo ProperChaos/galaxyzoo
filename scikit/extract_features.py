@@ -5,9 +5,11 @@ from skimage import util
 from numpy import array
 from time import gmtime, strftime, time, sleep
 
+# Because Python can't pickle class methods?
 def unpack_wrapper(x):
 	return calc_feature(*x)
 
+# Extracts feature vector from an image, given centroids
 def calc_feature(centroids, patch_width, stride, path, p, q):
 	t = time()
 	image = misc.imread(path)
@@ -25,11 +27,12 @@ def calc_feature(centroids, patch_width, stride, path, p, q):
 	patches = numpy.float32(patches)
 
 	# Preprocessing
+	# Normalize
 	patches = patches - numpy.asmatrix(patches.mean(axis=1)).T
 	patches = patches / patches.std(axis=1)
 	patches = numpy.nan_to_num(patches)
 
-	# Activation function
+	# Triangle (soft) activation function
 	xx = numpy.sum(numpy.exp2(patches), axis=1)
 	cc = numpy.sum(numpy.exp2(centroids), axis=1)
 	xc = 2*numpy.dot(patches, numpy.transpose(centroids))
@@ -38,6 +41,7 @@ def calc_feature(centroids, patch_width, stride, path, p, q):
 	mu = z.mean(axis=1)
 	patches = numpy.maximum(0, mu-z)
 
+	# Reshape to 2D plane before pooling
 	rows = image.shape[0] - patch_width + 1
 	cols = image.shape[1] - patch_width + 1
 	patches = numpy.array(patches, copy=False).reshape(rows, cols, centroids.shape[0], order="F")
@@ -46,6 +50,7 @@ def calc_feature(centroids, patch_width, stride, path, p, q):
 	half_rows = round(rows / 2)
 	half_cols = round(cols / 2)
 
+	# Calculate pool values
 	q1 = numpy.sum(numpy.sum(patches[1:half_rows, 1:half_cols, :], 0), 0)
 	q2 = numpy.sum(numpy.sum(patches[half_rows+1:patches.shape[0], 1:half_cols, :], 0), 0)
 	q3 = numpy.sum(numpy.sum(patches[1:half_rows, half_cols+1:patches.shape[1], :], 0), 0)
@@ -56,12 +61,15 @@ def calc_feature(centroids, patch_width, stride, path, p, q):
 
 	output = numpy.transpose(numpy.append(q1, numpy.append(q2, numpy.append(q3, q4))))
 
+	# Put output in queue (so that it is sent to the original thread)
 	q.put((p, output))
 
 	# Concatenate and return
 	return 0
 
 def patch_extract(image, patch_width, stride):
+	# Ugly code, extracts r, g, b patches from the image convolutionally.
+
 	patches_r = util.view_as_windows(image[:, :, 0], (patch_width, patch_width), stride)
 	patches_g = util.view_as_windows(image[:, :, 1], (patch_width, patch_width), stride)
 	patches_b = util.view_as_windows(image[:, :, 2], (patch_width, patch_width), stride)
